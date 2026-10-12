@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ thống Giám sát & Điều khiển IoT</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- MQTT Library -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#eef2ff', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+    <!-- Top Header -->
+    <header class="bg-slate-800/80 backdrop-blur border-b border-slate-700 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                    <i class="fa-solid fa-microchip text-white text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg tracking-tight">Hệ Thống Phòng Học Trọ IoT</h1>
+                    <p class="text-xs text-slate-400">ESP32 & HiveMQ Cloud Dashboard</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-4">
+                <!-- MQTT Status Badge -->
+                <div id="mqttStatusBadge" class="flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">
+                    <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                    <span id="mqttStatusText">MQTT: Đang kết nối...</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+
+        <!-- Top Grid: Sensors & Controls -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Cột 1 & 2: Cảm biến & Biểu đồ -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Thẻ Cảm biến (Sensor Cards) -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <!-- Nhiệt độ -->
+                    <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-sm hover:border-slate-600 transition">
+                        <div class="flex items-center justify-between text-slate-400 mb-2">
+                            <span class="text-sm font-medium">Nhiệt độ</span>
+                            <div class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center">
+                                <i class="fa-solid fa-temperature-high"></i>
+                            </div>
+                        </div>
+                        <div class="flex items-baseline space-x-1">
+                            <span id="temperature" class="text-3xl font-bold tracking-tight text-white">--</span>
+                            <span class="text-slate-400 text-lg">°C</span>
+                        </div>
+                    </div>
+
+                    <!-- Độ ẩm -->
+                    <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-sm hover:border-slate-600 transition">
+                        <div class="flex items-center justify-between text-slate-400 mb-2">
+                            <span class="text-sm font-medium">Độ ẩm</span>
+                            <div class="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center">
+                                <i class="fa-solid fa-droplet"></i>
+                            </div>
+                        </div>
+                        <div class="flex items-baseline space-x-1">
+                            <span id="humidity" class="text-3xl font-bold tracking-tight text-white">--</span>
+                            <span class="text-slate-400 text-lg">%</span>
+                        </div>
+                    </div>
+
+                    <!-- Ánh sáng -->
+                    <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-sm hover:border-slate-600 transition">
+                        <div class="flex items-center justify-between text-slate-400 mb-2">
+                            <span class="text-sm font-medium">Ánh sáng (ADC)</span>
+                            <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
+                                <i class="fa-solid fa-sun"></i>
+                            </div>
+                        </div>
+                        <div class="flex items-baseline space-x-1">
+                            <span id="light" class="text-3xl font-bold tracking-tight text-white">--</span>
+                            <span class="text-slate-400 text-xs">adc</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Biểu đồ thời gian thực Chart.js -->
+                <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-6 shadow-sm">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-base font-semibold text-slate-200 flex items-center gap-2">
+                            <i class="fa-solid fa-chart-line text-indigo-400"></i> Biểu đồ Cảm biến (20 mẫu gần nhất)
+                        </h2>
+                    </div>
+                    <div class="relative h-72 w-full">
+                        <canvas id="sensorChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cột 3: Bảng điều khiển (Control Panel) & Hẹn giờ -->
+            <div class="space-y-6">
+                <!-- Chế độ hoạt động -->
+                <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-6 shadow-sm">
+                    <h2 class="text-base font-semibold text-slate-200 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-sliders text-indigo-400"></i> Chế độ hoạt động
+                    </h2>
+                    <div class="bg-slate-900/50 p-3 rounded-xl border border-slate-700/40 text-center mb-4">
+                        <span class="text-xs text-slate-400 block mb-1">Trạng thái hiện tại</span>
+                        <span id="modeState" class="text-lg font-bold text-indigo-400 tracking-wide">MANUAL</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="setMode('AUTO')" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm transition shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-robot"></i> AUTO
+                        </button>
+                        <button onclick="setMode('MANUAL')" class="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-medium text-sm transition flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-user"></i> MANUAL
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Điều khiển Thiết bị (LED & Buzzer) -->
+                <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-6 shadow-sm space-y-4">
+                    <h2 class="text-base font-semibold text-slate-200 flex items-center gap-2">
+                        <i class="fa-solid fa-power-off text-indigo-400"></i> Điều khiển thiết bị
+                    </h2>
+
+                    <!-- Đèn LED -->
+                    <div class="bg-slate-900/40 p-4 rounded-xl border border-slate-700/40 flex items-center justify-between">
+                        <div>
+                            <span class="font-medium block text-slate-200"><i class="fa-solid fa-lightbulb text-amber-400 mr-2"></i> Đèn LED</span>
+                            <span class="text-xs text-slate-400">Điều khiển chiếu sáng</span>
+                        </div>
+                        <div class="flex gap-2">
+                            <button id="ledOnBtn" onclick="controlLED('ON')" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed">BẬT</button>
+                            <button id="ledOffBtn" onclick="controlLED('OFF')" class="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed">TẮT</button>
+                        </div>
+                    </div>
+
+                    <!-- Buzzer -->
+                    <div class="bg-slate-900/40 p-4 rounded-xl border border-slate-700/40 flex items-center justify-between">
+                        <div>
+                            <span class="font-medium block text-slate-200"><i class="fa-solid fa-bell text-rose-400 mr-2"></i> Còi báo (Buzzer)</span>
+                            <span class="text-xs text-slate-400">Trạng thái: <b id="buzzerState" class="text-rose-400">OFF</b></span>
+                        </div>
+                        <div class="flex gap-2">
+                            <button id="buzzerOnBtn" onclick="controlBuzzer('ON')" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed">BẬT</button>
+                            <button id="buzzerOffBtn" onclick="controlBuzzer('OFF')" class="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed">TẮT</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hẹn giờ thời gian thực -->
+                <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-6 shadow-sm">
+                    <h2 class="text-base font-semibold text-slate-200 mb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-clock text-indigo-400"></i> Hẹn giờ bật/tắt Đèn
+                    </h2>
+                    <div class="text-xs text-slate-400 mb-4">Giờ hệ thống: <b id="currentTime" class="text-slate-200">--:--:--</b></div>
+                    
+                    <div class="space-y-3">
+                        <div>
+                            <label class="text-xs text-slate-400 block mb-1">Thời gian Bật đèn</label>
+                            <div class="flex gap-2">
+                                <input type="time" id="onTimeInput" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white flex-1 focus:outline-none focus:border-indigo-500">
+                                <button onclick="setTimerOn()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition">Lưu</button>
+                            </div>
+                            <span class="text-[11px] text-slate-500 mt-1 block">Đã hẹn: <span id="savedOnTime" class="text-slate-300">Chưa đặt</span></span>
+                        </div>
+
+                        <div>
+                            <label class="text-xs text-slate-400 block mb-1">Thời gian Tắt đèn</label>
+                            <div class="flex gap-2">
+                                <input type="time" id="offTimeInput" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white flex-1 focus:outline-none focus:border-indigo-500">
+                                <button onclick="setTimerOff()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition">Lưu</button>
+                            </div>
+                            <span class="text-[11px] text-slate-500 mt-1 block">Đã hẹn: <span id="savedOffTime" class="text-slate-300">Chưa đặt</span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Bottom Full: MQTT Log Console -->
+        <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-6 shadow-sm">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-base font-semibold text-slate-200 flex items-center gap-2">
+                    <i class="fa-solid fa-terminal text-indigo-400"></i> Nhật ký MQTT (MQTT Log Console)
+                </h2>
+                <button onclick="document.getElementById('log').innerHTML=''" class="text-xs text-slate-400 hover:text-white underline">Xóa log</button>
+            </div>
+            <div id="log" class="h-40 overflow-y-auto bg-slate-950/80 rounded-xl p-4 font-mono text-xs text-emerald-400 border border-slate-800 leading-relaxed"></div>
+        </div>
+
+    </main>
+
+    <!-- Script Xử lý MQTT & Biểu đồ -->
+    <script>
+        const mqttHost = "wss://9362e9a942044f75a1aaa3b24f00a524.s1.eu.hivemq.cloud:8884/mqtt";
+        const mqttUsername = "esp32";
+        const mqttPassword = "tranhuubang";
+
+        const topicLedControl = "tro/room1/light/control";
+        const topicBuzzerControl = "tro/room1/buzzer/control";
+        const topicBuzzerState = "tro/room1/buzzer/state";
+        const topicTemperature = "tro/room1/temperature";
+        const topicHumidity = "tro/room1/humidity";
+        const topicLight = "tro/room1/light";
+        const topicModeControl = "tro/room1/mode/control";
+        const topicModeState = "tro/room1/mode/state";
+
+        let scheduledOnTime = null;
+        let scheduledOffTime = null;
+
+        function addLog(message) {
+            const log = document.getElementById("log");
+            const time = new Date().toLocaleTimeString();
+            log.innerHTML += `[${time}] ${message}<br>`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        // Cấu hình Biểu đồ Chart.js (20 mẫu gần nhất)
+        const maxDataPoints = 20;
+        const ctx = document.getElementById('sensorChart').getContext('2d');
+        const sensorChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Nhiệt độ (°C)',
+                        data: [],
+                        borderColor: '#f43f5e',
+                        backgroundColor: 'rgba(244, 63, 94, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: true,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Độ ẩm (%)',
+                        data: [],
+                        borderColor: '#38bdf8',
+                        backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: true,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { labels: { color: '#cbd5e1' } }
+                },
+                scales: {
+                    x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(51, 65, 85, 0.3)' } },
+                    y: {
+                        type: 'linear',
+                        position: 'left',
+                        title: { display: true, text: 'Nhiệt độ (°C)', color: '#f43f5e' },
+                        ticks: { color: '#94a3b8' },
+                        grid: { color: 'rgba(51, 65, 85, 0.3)' },
+                        suggestedMin: 15,
+                        suggestedMax: 45
+                    },
+                    y1: {
+                        type: 'linear',
+                        position: 'right',
+                        title: { display: true, text: 'Độ ẩm (%)', color: '#38bdf8' },
+                        ticks: { color: '#94a3b8' },
+                        grid: { drawOnChartArea: false },
+                        suggestedMin: 20,
+                        suggestedMax: 100
+                    }
+                }
+            }
+        });
+
+        function addDataToChart(timeLabel, temp, hum) {
+            if (sensorChart.data.labels.length >= maxDataPoints) {
+                sensorChart.data.labels.shift();
+                sensorChart.data.datasets[0].data.shift();
+                sensorChart.data.datasets[1].data.shift();
+            }
+            sensorChart.data.labels.push(timeLabel);
+            sensorChart.data.datasets[0].data.push(temp);
+            sensorChart.data.datasets[1].data.push(hum);
+            sensorChart.update();
+        }
+
+        // Khởi tạo kết nối MQTT qua WebSockets
+        const client = mqtt.connect(mqttHost, {
+            username: mqttUsername,
+            password: mqttPassword,
+            clientId: "Web-" + Math.random().toString(16).substring(2, 10),
+            clean: true,
+            connectTimeout: 5000,
+            reconnectPeriod: 3000
+        });
+
+        client.on("connect", function() {
+            const badge = document.getElementById("mqttStatusBadge");
+            const text = document.getElementById("mqttStatusText");
+            badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+            badge.querySelector("span").className = "w-2 h-2 rounded-full bg-emerald-500";
+            text.innerText = "MQTT: ĐÃ KẾT NỐI";
+            addLog("Kết nối MQTT thành công với HiveMQ Cloud!");
+
+            client.subscribe(topicBuzzerState);
+            client.subscribe(topicTemperature);
+            client.subscribe(topicHumidity);
+            client.subscribe(topicLight);
+            client.subscribe(topicModeState);
+        });
+
+        client.on("offline", function() {
+            const badge = document.getElementById("mqttStatusBadge");
+            const text = document.getElementById("mqttStatusText");
+            badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20";
+            badge.querySelector("span").className = "w-2 h-2 rounded-full bg-red-500 animate-pulse";
+            text.innerText = "MQTT: MẤT KẾT NỐI";
+            addLog("MQTT mất kết nối.");
+        });
+
+        client.on("error", function(error) {
+            addLog("Lỗi MQTT: " + error.message);
+        });
+
+        client.on("message", function(topic, message) {
+            const data = message.toString();
+            addLog(`${topic} → ${data}`);
+
+            if (topic === topicBuzzerState) {
+                const buzzerEl = document.getElementById("buzzerState");
+                buzzerEl.innerText = data;
+                buzzerEl.style.color = (data === "ON") ? "#22c55e" : "#f43f5e";
+                return;
+            }
+
+            if (topic === topicTemperature) {
+                document.getElementById("temperature").innerText = data;
+                const timeNow = new Date().toLocaleTimeString();
+                const humVal = parseFloat(document.getElementById("humidity").innerText) || 0;
+                addDataToChart(timeNow, parseFloat(data), humVal);
+                return;
+            }
+
+            if (topic === topicHumidity) {
+                document.getElementById("humidity").innerText = data;
+                return;
+            }
+
+            if (topic === topicLight) {
+                document.getElementById("light").innerText = data;
+                return;
+            }
+
+            if (topic === topicModeState) {
+                document.getElementById("modeState").innerText = data;
+                const isAuto = (data === "AUTO");
+                document.getElementById("ledOnBtn").disabled = isAuto;
+                document.getElementById("ledOffBtn").disabled = isAuto;
+                document.getElementById("buzzerOnBtn").disabled = isAuto;
+                document.getElementById("buzzerOffBtn").disabled = isAuto;
+                return;
+            }
+        });
+
+        function setMode(mode) {
+            if (!client.connected) { alert("MQTT chưa kết nối!"); return; }
+            client.publish(topicModeControl, mode, { qos: 0, retain: true });
+            addLog(`Gửi lệnh MODE → ${mode}`);
+        }
+
+        function controlLED(state) {
+            if (!client.connected) { alert("MQTT chưa kết nối!"); return; }
+            client.publish(topicLedControl, state, { qos: 0, retain: false });
+            addLog(`Gửi lệnh LED → ${state}`);
+        }
+
+        function controlBuzzer(state) {
+            if (!client.connected) { alert("MQTT chưa kết nối!"); return; }
+            client.publish(topicBuzzerControl, state, { qos: 0, retain: false });
+            addLog(`Gửi lệnh BUZZER → ${state}`);
+        }
+
+        function setTimerOn() {
+            scheduledOnTime = document.getElementById("onTimeInput").value;
+            document.getElementById("savedOnTime").innerText = scheduledOnTime || "Chưa đặt";
+            addLog(`Đã đặt lịch BẬT đèn lúc: ${scheduledOnTime || "Hủy"}`);
+        }
+
+        function setTimerOff() {
+            scheduledOffTime = document.getElementById("offTimeInput").value;
+            document.getElementById("savedOffTime").innerText = scheduledOffTime || "Chưa đặt";
+            addLog(`Đã đặt lịch TẮT đèn lúc: ${scheduledOffTime || "Hủy"}`);
+        }
+
+        // Kiểm tra thời gian thực từng giây để thực hiện hẹn giờ
+        setInterval(function() {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            document.getElementById("currentTime").innerText = `${hours}:${minutes}:${seconds}`;
+            const currentHM = `${hours}:${minutes}`;
+
+            const modeState = document.getElementById("modeState").innerText;
+            if (modeState === "MANUAL") {
+                if (scheduledOnTime && currentHM === scheduledOnTime) {
+                    controlLED("ON");
+                    addLog("⏰ Đến giờ hẹn: Bật đèn tự động!");
+                    scheduledOnTime = null;
+                    document.getElementById("savedOnTime").innerText = "Đã thực thi";
+                }
+                if (scheduledOffTime && currentHM === scheduledOffTime) {
+                    controlLED("OFF");
+                    addLog("⏰ Đến giờ hẹn: Tắt đèn tự động!");
+                    scheduledOffTime = null;
+                    document.getElementById("savedOffTime").innerText = "Đã thực thi";
+                }
+            }
+        }, 1000);
+    </script>
+</body>
+</html>
