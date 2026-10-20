@@ -57,10 +57,28 @@ def encrypt_aes(plain_text):
     return encrypted_bytes.hex().upper()
 
 # ==========================================
-# MQTT CLIENT CALLBACKS (LẮNG NGHE NGẦM)
+# HÀM GỬI LỆNH MQTT AN TOÀN TRÊN CLOUD/RENDER
+# ==========================================
+def send_mqtt_command(topic, message):
+    try:
+        client = mqtt.Client()
+        client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
+        client.tls_set()  # Kết nối bảo mật TLS cổng 8883
+        client.connect(MQTT_SERVER, MQTT_PORT, 60)
+        
+        # Mã hóa AES trước khi gửi xuống phần cứng
+        encrypted_cmd = encrypt_aes(message)
+        client.publish(topic, encrypted_cmd)
+        client.disconnect()
+        print(f"✅ Đã gửi MQTT thành công tới {topic}: {encrypted_cmd}")
+    except Exception as e:
+        print(f"❌ Lỗi gửi MQTT: {e}")
+
+# ==========================================
+# MQTT CLIENT BACKGROUND LISTENER (LẮNG NGHE CẢM BIẾN)
 # ==========================================
 def on_connect(client, userdata, flags, rc):
-    print("✅ Đã kết nối MQTT Broker thành công!")
+    print("✅ Đã kết nối MQTT Broker thành công để lắng nghe!")
     client.subscribe("tro/room1/#")
 
 def on_message(client, userdata, msg):
@@ -84,14 +102,17 @@ def on_message(client, userdata, msg):
     elif "mode/state" in topic:
         latest_data["mode"] = decrypted_msg
 
-# Khởi chạy MQTT Client chạy ngầm
-mqtt_client = mqtt.Client()
-mqtt_client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
-mqtt_client.tls_set()  # Kết nối bảo mật TLS cổng 8883
-mqtt_client.on_connect = on_connect
-mqtt_client.on_message = on_message
-mqtt_client.connect(MQTT_SERVER, MQTT_PORT, 60)
-mqtt_client.loop_start()
+# Khởi chạy luồng ngầm lắng nghe dữ liệu cảm biến
+try:
+    background_client = mqtt.Client()
+    background_client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
+    background_client.tls_set()
+    background_client.on_connect = on_connect
+    background_client.on_message = on_message
+    background_client.connect(MQTT_SERVER, MQTT_PORT, 60)
+    background_client.loop_start()
+except Exception as e:
+    print(f"Không thể khởi động background MQTT client: {e}")
 
 # ==========================================
 # ROUTE WEB DASHBOARD
@@ -132,25 +153,21 @@ def chat_ai():
 
     # 2. Ra lệnh BẬT ĐÈN
     elif "bật" in user_message and ("đèn" in user_message or "sáng" in user_message):
-        encrypted_cmd = encrypt_aes("ON")
-        mqtt_client.publish("tro/room1/light/control", encrypted_cmd)
+        send_mqtt_command("tro/room1/light/control", "ON")
         response_text = "💡 Đã nhận lệnh! Tôi đã bật đèn phòng cho bạn rồi nhé."
 
     # 3. Ra lệnh TẮT ĐÈN
     elif "tắt" in user_message and ("đèn" in user_message or "tối" in user_message):
-        encrypted_cmd = encrypt_aes("OFF")
-        mqtt_client.publish("tro/room1/light/control", encrypted_cmd)
+        send_mqtt_command("tro/room1/light/control", "OFF")
         response_text = "🌙 Đã nhận lệnh! Tôi đã tắt đèn phòng giúp bạn."
 
     # 4. Điều khiển CÒI BÁO (Buzzer)
     elif "bật" in user_message and ("còi" in user_message or "báo động" in user_message):
-        encrypted_cmd = encrypt_aes("ON")
-        mqtt_client.publish("tro/room1/buzzer/control", encrypted_cmd)
+        send_mqtt_command("tro/room1/buzzer/control", "ON")
         response_text = "🚨 Đã kích hoạt còi báo động!"
         
     elif "tắt" in user_message and ("còi" in user_message or "báo động" in user_message):
-        encrypted_cmd = encrypt_aes("OFF")
-        mqtt_client.publish("tro/room1/buzzer/control", encrypted_cmd)
+        send_mqtt_command("tro/room1/buzzer/control", "OFF")
         response_text = "🔕 Đã tắt còi báo động."
 
     # 5. Hỏi trạng thái chế độ AUTO/MANUAL
