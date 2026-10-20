@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hệ thống Giám sát & Điều khiển IoT</title>
+    <title>Hệ thống Giám sát & Điều khiển IoT (Secure AES & Timer)</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome Icons -->
@@ -12,6 +12,8 @@
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Crypto-JS Library để giải mã/mã hóa AES -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -28,14 +30,14 @@
 <body class="bg-slate-900 text-slate-100 min-h-screen font-sans antialiased selection:bg-indigo-500 selection:text-white">
 
     <!-- Top Header -->
-    <header class="bg-slate-800/80 backdrop-blur border-b border-slate-700 sticky top-0 z-50">
+    <header class="bg-slate-800/85 backdrop-blur border-b border-slate-700 sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div class="flex items-center space-x-3">
                 <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-                    <i class="fa-solid fa-microchip text-white text-xl"></i>
+                    <i class="fa-solid fa-shield-halved text-white text-xl"></i>
                 </div>
                 <div>
-                    <h1 class="font-bold text-lg tracking-tight">Hệ Thống Phòng Trọ IoT</h1>
+                    <h1 class="font-bold text-lg tracking-tight">Hệ Thống Phòng Trọ IoT (Secure & Timer)</h1>
                     <p class="text-xs text-slate-400">ESP32 & HiveMQ Cloud Dashboard</p>
                 </div>
             </div>
@@ -57,10 +59,10 @@
             
             <!-- Cột 1 & 2: Cảm biến & Biểu đồ -->
             <div class="lg:col-span-2 space-y-6">
-                <!-- Thẻ Cảm biến (Sensor Cards) -->
+                <!-- Thẻ Cảm biến -->
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <!-- Nhiệt độ -->
-                    <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-sm hover:border-slate-600 transition">
+                    <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-sm">
                         <div class="flex items-center justify-between text-slate-400 mb-2">
                             <span class="text-sm font-medium">Nhiệt độ</span>
                             <div class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center">
@@ -74,7 +76,7 @@
                     </div>
 
                     <!-- Độ ẩm -->
-                    <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-sm hover:border-slate-600 transition">
+                    <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-sm">
                         <div class="flex items-center justify-between text-slate-400 mb-2">
                             <span class="text-sm font-medium">Độ ẩm</span>
                             <div class="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center">
@@ -88,7 +90,7 @@
                     </div>
 
                     <!-- Ánh sáng -->
-                    <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-sm hover:border-slate-600 transition">
+                    <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-sm">
                         <div class="flex items-center justify-between text-slate-400 mb-2">
                             <span class="text-sm font-medium">Ánh sáng (ADC)</span>
                             <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
@@ -102,20 +104,18 @@
                     </div>
                 </div>
 
-                <!-- Biểu đồ thời gian thực Chart.js -->
+                <!-- Biểu đồ Chart.js -->
                 <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-6 shadow-sm">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-base font-semibold text-slate-200 flex items-center gap-2">
-                            <i class="fa-solid fa-chart-line text-indigo-400"></i> Biểu đồ Cảm biến (20 mẫu gần nhất)
-                        </h2>
-                    </div>
+                    <h2 class="text-base font-semibold text-slate-200 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-chart-line text-indigo-400"></i> Biểu đồ Cảm biến (Dữ liệu đã giải mã)
+                    </h2>
                     <div class="relative h-72 w-full">
                         <canvas id="sensorChart"></canvas>
                     </div>
                 </div>
             </div>
 
-            <!-- Cột 3: Bảng điều khiển (Control Panel) & Hẹn giờ -->
+            <!-- Cột 3: Bảng điều khiển & Hẹn giờ -->
             <div class="space-y-6">
                 <!-- Chế độ hoạt động -->
                 <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-6 shadow-sm">
@@ -127,16 +127,12 @@
                         <span id="modeState" class="text-lg font-bold text-indigo-400 tracking-wide">MANUAL</span>
                     </div>
                     <div class="grid grid-cols-2 gap-3">
-                        <button onclick="setMode('AUTO')" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm transition shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2">
-                            <i class="fa-solid fa-robot"></i> AUTO
-                        </button>
-                        <button onclick="setMode('MANUAL')" class="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-medium text-sm transition flex items-center justify-center gap-2">
-                            <i class="fa-solid fa-user"></i> MANUAL
-                        </button>
+                        <button onclick="setMode('AUTO')" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm transition">AUTO</button>
+                        <button onclick="setMode('MANUAL')" class="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-medium text-sm transition">MANUAL</button>
                     </div>
                 </div>
 
-                <!-- Điều khiển Thiết bị (LED & Buzzer) -->
+                <!-- Điều khiển Thiết bị -->
                 <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-6 shadow-sm space-y-4">
                     <h2 class="text-base font-semibold text-slate-200 flex items-center gap-2">
                         <i class="fa-solid fa-power-off text-indigo-400"></i> Điều khiển thiết bị
@@ -146,23 +142,22 @@
                     <div class="bg-slate-900/40 p-4 rounded-xl border border-slate-700/40 flex items-center justify-between">
                         <div>
                             <span class="font-medium block text-slate-200"><i class="fa-solid fa-lightbulb text-amber-400 mr-2"></i> Đèn LED</span>
-                            <span class="text-xs text-slate-400">Điều khiển chiếu sáng</span>
                         </div>
                         <div class="flex gap-2">
-                            <button id="ledOnBtn" onclick="controlLED('ON')" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed">BẬT</button>
-                            <button id="ledOffBtn" onclick="controlLED('OFF')" class="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed">TẮT</button>
+                            <button id="ledOnBtn" onclick="controlLED('ON')" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition">BẬT</button>
+                            <button id="ledOffBtn" onclick="controlLED('OFF')" class="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition">TẮT</button>
                         </div>
                     </div>
 
                     <!-- Buzzer -->
                     <div class="bg-slate-900/40 p-4 rounded-xl border border-slate-700/40 flex items-center justify-between">
                         <div>
-                            <span class="font-medium block text-slate-200"><i class="fa-solid fa-bell text-rose-400 mr-2"></i> Còi báo (Buzzer)</span>
+                            <span class="font-medium block text-slate-200"><i class="fa-solid fa-bell text-rose-400 mr-2"></i> Còi báo</span>
                             <span class="text-xs text-slate-400">Trạng thái: <b id="buzzerState" class="text-rose-400">OFF</b></span>
                         </div>
                         <div class="flex gap-2">
-                            <button id="buzzerOnBtn" onclick="controlBuzzer('ON')" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed">BẬT</button>
-                            <button id="buzzerOffBtn" onclick="controlBuzzer('OFF')" class="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed">TẮT</button>
+                            <button id="buzzerOnBtn" onclick="controlBuzzer('ON')" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition">BẬT</button>
+                            <button id="buzzerOffBtn" onclick="controlBuzzer('OFF')" class="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition">TẮT</button>
                         </div>
                     </div>
                 </div>
@@ -195,36 +190,84 @@
                     </div>
                 </div>
             </div>
-
         </div>
 
-        <!-- Bottom Full: MQTT Log Console -->
+        <!-- Log Console -->
         <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-6 shadow-sm">
             <div class="flex items-center justify-between mb-3">
                 <h2 class="text-base font-semibold text-slate-200 flex items-center gap-2">
-                    <i class="fa-solid fa-terminal text-indigo-400"></i> Nhật ký MQTT (MQTT Log Console)
+                    <i class="fa-solid fa-terminal text-indigo-400"></i> Nhật ký MQTT & Giải mã AES
                 </h2>
                 <button onclick="document.getElementById('log').innerHTML=''" class="text-xs text-slate-400 hover:text-white underline">Xóa log</button>
             </div>
-            <div id="log" class="h-40 overflow-y-auto bg-slate-950/80 rounded-xl p-4 font-mono text-xs text-emerald-400 border border-slate-800 leading-relaxed"></div>
+            <div id="log" class="h-44 overflow-y-auto bg-slate-950/80 rounded-xl p-4 font-mono text-xs text-emerald-400 border border-slate-800 leading-relaxed"></div>
         </div>
-
     </main>
 
-    <!-- Script Xử lý MQTT & Biểu đồ -->
+    <!-- ========================================== -->
+    <!-- AI CHATBOT WIDGET INTEGRATION              -->
+    <!-- ========================================== -->
+    <div id="chat-widget-container" class="fixed bottom-6 right-6 z-50 font-sans">
+        <!-- Nút bấm nổi mở/đóng Chatbot -->
+        <button id="chat-toggle-btn" onclick="toggleChat()" class="w-14 h-14 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center shadow-xl shadow-indigo-600/40 transition duration-300 transform hover:scale-105">
+            <i class="fa-solid fa-robot text-2xl"></i>
+        </button>
+
+        <!-- Khung cửa sổ Chatbot -->
+        <div id="chat-box" class="hidden absolute bottom-20 right-0 w-80 sm:w-96 h-[460px] bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl flex-col overflow-hidden backdrop-blur-xl">
+            <!-- Header Khung Chat -->
+            <div class="bg-slate-900/90 border-b border-slate-700/80 px-4 py-3 flex justify-between items-center">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
+                        <i class="fa-solid fa-bot text-sm"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-semibold text-slate-100">Trợ lý AI Phòng Trọ</h3>
+                        <p class="text-[10px] text-emerald-400 flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Trực tuyến
+                        </p>
+                    </div>
+                </div>
+                <button onclick="toggleChat()" class="text-slate-400 hover:text-white transition">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Khung chứa tin nhắn -->
+            <div id="chat-messages" class="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-950/40 text-xs">
+                <div class="bg-slate-700/60 border border-slate-600/40 text-slate-200 p-3 rounded-2xl rounded-tl-none max-w-[85%] space-y-1">
+                    <p class="font-medium text-indigo-300">👋 Chào bạn Bang!</p>
+                    <p class="leading-relaxed">Tôi có thể giúp bạn kiểm tra thông số nhiệt độ, độ ẩm hoặc ra lệnh điều khiển thiết bị bằng giọng nói/văn bản.</p>
+                </div>
+            </div>
+
+            <!-- Khung nhập câu lệnh -->
+            <div class="p-3 bg-slate-900/80 border-t border-slate-700/80 flex items-center gap-2">
+                <input type="text" id="chat-input" placeholder="Hỏi thời tiết, bật/tắt đèn..." onkeypress="handleKeyPress(event)" class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition">
+                <button onclick="sendMessage()" class="w-9 h-9 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl flex items-center justify-center transition">
+                    <i class="fa-solid fa-paper-plane text-xs"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Xử lý MQTT, Giải mã AES, Hẹn giờ & AI Chatbot -->
     <script>
         const mqttHost = "wss://9362e9a942044f75a1aaa3b24f00a524.s1.eu.hivemq.cloud:8884/mqtt";
         const mqttUsername = "esp32";
         const mqttPassword = "tranhuubang";
 
-        const topicLedControl = "tro/room1/light/control";
+        const AES_SECRET_KEY = "1234567890123456";
+
+        const topicLedControl    = "tro/room1/light/control";
+        const topicLedState      = "tro/room1/light/state";
         const topicBuzzerControl = "tro/room1/buzzer/control";
-        const topicBuzzerState = "tro/room1/buzzer/state";
-        const topicTemperature = "tro/room1/temperature";
-        const topicHumidity = "tro/room1/humidity";
-        const topicLight = "tro/room1/light";
-        const topicModeControl = "tro/room1/mode/control";
-        const topicModeState = "tro/room1/mode/state";
+        const topicBuzzerState   = "tro/room1/buzzer/state";
+        const topicTemperature   = "tro/room1/temperature";
+        const topicHumidity      = "tro/room1/humidity";
+        const topicLight         = "tro/room1/light";
+        const topicModeControl   = "tro/room1/mode/control";
+        const topicModeState     = "tro/room1/mode/state";
 
         let scheduledOnTime = null;
         let scheduledOffTime = null;
@@ -236,7 +279,44 @@
             log.scrollTop = log.scrollHeight;
         }
 
-        // Cấu hình Biểu đồ Chart.js (20 mẫu gần nhất)
+        // Mã hóa & Giải mã AES
+        function encryptAES(plainText) {
+            const key = CryptoJS.enc.Utf8.parse(AES_SECRET_KEY);
+            const encrypted = CryptoJS.AES.encrypt(plainText, key, {
+                mode: CryptoJS.mode.ECB,
+                padding: CryptoJS.pad.Pkcs7
+            });
+            const ciphertextBytes = encrypted.ciphertext;
+            let hexString = "";
+            for (let i = 0; i < ciphertextBytes.sigBytes; i++) {
+                const byte = ciphertextBytes.words[i >>> 2] >>> (24 - (i % 4) * 8) & 0xff;
+                hexString += ("0" + byte.toString(16)).slice(-2);
+            }
+            return hexString.toUpperCase();
+        }
+
+        function decryptAES(cipherHex) {
+            try {
+                let words = [];
+                for (let i = 0; i < cipherHex.length; i += 2) {
+                    words.push(parseInt(cipherHex.substr(i, 2), 16));
+                }
+                let encryptedHexStr = CryptoJS.lib.CipherParams.create({
+                    ciphertext: CryptoJS.enc.Hex.parse(cipherHex)
+                });
+                
+                const key = CryptoJS.enc.Utf8.parse(AES_SECRET_KEY);
+                const decrypted = CryptoJS.AES.decrypt(encryptedHexStr, key, {
+                    mode: CryptoJS.mode.ECB,
+                    padding: CryptoJS.pad.Pkcs7
+                });
+                return decrypted.toString(CryptoJS.enc.Utf8);
+            } catch (e) {
+                return "";
+            }
+        }
+
+        // Cấu hình Chart.js
         const maxDataPoints = 20;
         const ctx = document.getElementById('sensorChart').getContext('2d');
         const sensorChart = new Chart(ctx, {
@@ -244,54 +324,16 @@
             data: {
                 labels: [],
                 datasets: [
-                    {
-                        label: 'Nhiệt độ (°C)',
-                        data: [],
-                        borderColor: '#f43f5e',
-                        backgroundColor: 'rgba(244, 63, 94, 0.1)',
-                        borderWidth: 2,
-                        tension: 0.3,
-                        fill: true,
-                        yAxisID: 'y'
-                    },
-                    {
-                        label: 'Độ ẩm (%)',
-                        data: [],
-                        borderColor: '#38bdf8',
-                        backgroundColor: 'rgba(56, 189, 248, 0.1)',
-                        borderWidth: 2,
-                        tension: 0.3,
-                        fill: true,
-                        yAxisID: 'y1'
-                    }
+                    { label: 'Nhiệt độ (°C)', data: [], borderColor: '#f43f5e', backgroundColor: 'rgba(244, 63, 94, 0.1)', tension: 0.3, fill: true, yAxisID: 'y' },
+                    { label: 'Độ ẩm (%)', data: [], borderColor: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.1)', tension: 0.3, fill: true, yAxisID: 'y1' }
                 ]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { labels: { color: '#cbd5e1' } }
-                },
+                responsive: true, maintainAspectRatio: false,
                 scales: {
                     x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(51, 65, 85, 0.3)' } },
-                    y: {
-                        type: 'linear',
-                        position: 'left',
-                        title: { display: true, text: 'Nhiệt độ (°C)', color: '#f43f5e' },
-                        ticks: { color: '#94a3b8' },
-                        grid: { color: 'rgba(51, 65, 85, 0.3)' },
-                        suggestedMin: 15,
-                        suggestedMax: 45
-                    },
-                    y1: {
-                        type: 'linear',
-                        position: 'right',
-                        title: { display: true, text: 'Độ ẩm (%)', color: '#38bdf8' },
-                        ticks: { color: '#94a3b8' },
-                        grid: { drawOnChartArea: false },
-                        suggestedMin: 20,
-                        suggestedMax: 100
-                    }
+                    y: { type: 'linear', position: 'left', ticks: { color: '#94a3b8' }, grid: { color: 'rgba(51, 65, 85, 0.3)' } },
+                    y1: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#94a3b8' } }
                 }
             }
         });
@@ -308,14 +350,11 @@
             sensorChart.update();
         }
 
-        // Khởi tạo kết nối MQTT qua WebSockets
         const client = mqtt.connect(mqttHost, {
             username: mqttUsername,
             password: mqttPassword,
-            clientId: "Web-" + Math.random().toString(16).substring(2, 10),
-            clean: true,
-            connectTimeout: 5000,
-            reconnectPeriod: 3000
+            clientId: "Web-Secure-" + Math.random().toString(16).substring(2, 10),
+            clean: true
         });
 
         client.on("connect", function() {
@@ -323,97 +362,87 @@
             const text = document.getElementById("mqttStatusText");
             badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
             badge.querySelector("span").className = "w-2 h-2 rounded-full bg-emerald-500";
-            text.innerText = "MQTT: ĐÃ KẾT NỐI";
-            addLog("Kết nối MQTT thành công với HiveMQ Cloud!");
+            text.innerText = "MQTT: ĐÃ KẾT NỐI (SECURE)";
+            addLog("Đã kết nối thành công tới HiveMQ Cloud!");
 
-            client.subscribe(topicBuzzerState);
             client.subscribe(topicTemperature);
             client.subscribe(topicHumidity);
             client.subscribe(topicLight);
+            client.subscribe(topicLedState);
+            client.subscribe(topicBuzzerState);
             client.subscribe(topicModeState);
         });
 
-        client.on("offline", function() {
-            const badge = document.getElementById("mqttStatusBadge");
-            const text = document.getElementById("mqttStatusText");
-            badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20";
-            badge.querySelector("span").className = "w-2 h-2 rounded-full bg-red-500 animate-pulse";
-            text.innerText = "MQTT: MẤT KẾT NỐI";
-            addLog("MQTT mất kết nối.");
-        });
-
-        client.on("error", function(error) {
-            addLog("Lỗi MQTT: " + error.message);
-        });
-
         client.on("message", function(topic, message) {
-            const data = message.toString();
-            addLog(`${topic} → ${data}`);
+            const cipherText = message.toString();
+            const plainText = decryptAES(cipherText);
 
-            if (topic === topicBuzzerState) {
-                const buzzerEl = document.getElementById("buzzerState");
-                buzzerEl.innerText = data;
-                buzzerEl.style.color = (data === "ON") ? "#22c55e" : "#f43f5e";
-                return;
-            }
+            addLog(`${topic} <span style="color:#f59e0b">[Hex]:</span> ${cipherText}`);
+            addLog(`${topic} <span style="color:#38bdf8">[Giải mã]:</span> <b>${plainText}</b>`);
 
             if (topic === topicTemperature) {
-                document.getElementById("temperature").innerText = data;
+                document.getElementById("temperature").innerText = plainText;
                 const timeNow = new Date().toLocaleTimeString();
                 const humVal = parseFloat(document.getElementById("humidity").innerText) || 0;
-                addDataToChart(timeNow, parseFloat(data), humVal);
+                addDataToChart(timeNow, parseFloat(plainText), humVal);
                 return;
             }
 
             if (topic === topicHumidity) {
-                document.getElementById("humidity").innerText = data;
+                document.getElementById("humidity").innerText = plainText;
                 return;
             }
 
             if (topic === topicLight) {
-                document.getElementById("light").innerText = data;
+                document.getElementById("light").innerText = plainText;
+                return;
+            }
+
+            if (topic === topicBuzzerState) {
+                const buzzerEl = document.getElementById("buzzerState");
+                buzzerEl.innerText = plainText;
+                buzzerEl.style.color = (plainText === "ON") ? "#22c55e" : "#f43f5e";
                 return;
             }
 
             if (topic === topicModeState) {
-                document.getElementById("modeState").innerText = data;
-                const isAuto = (data === "AUTO");
-                document.getElementById("ledOnBtn").disabled = isAuto;
-                document.getElementById("ledOffBtn").disabled = isAuto;
-                document.getElementById("buzzerOnBtn").disabled = isAuto;
-                document.getElementById("buzzerOffBtn").disabled = isAuto;
+                document.getElementById("modeState").innerText = plainText;
                 return;
             }
         });
 
         function setMode(mode) {
             if (!client.connected) { alert("MQTT chưa kết nối!"); return; }
-            client.publish(topicModeControl, mode, { qos: 0, retain: true });
-            addLog(`Gửi lệnh MODE → ${mode}`);
+            const encryptedMsg = encryptAES(mode);
+            client.publish(topicModeControl, encryptedMsg, { qos: 0, retain: true });
+            addLog(`Gửi lệnh MODE (${mode}) → Mã hóa Hex: ${encryptedMsg}`);
         }
 
         function controlLED(state) {
             if (!client.connected) { alert("MQTT chưa kết nối!"); return; }
-            client.publish(topicLedControl, state, { qos: 0, retain: false });
-            addLog(`Gửi lệnh LED → ${state}`);
+            const encryptedMsg = encryptAES(state);
+            client.publish(topicLedControl, encryptedMsg, { qos: 0, retain: false });
+            addLog(`Gửi lệnh LED (${state}) → Mã hóa Hex: ${encryptedMsg}`);
         }
 
         function controlBuzzer(state) {
             if (!client.connected) { alert("MQTT chưa kết nối!"); return; }
-            client.publish(topicBuzzerControl, state, { qos: 0, retain: false });
-            addLog(`Gửi lệnh BUZZER → ${state}`);
+            const encryptedMsg = encryptAES(state);
+            client.publish(topicBuzzerControl, encryptedMsg, { qos: 0, retain: false });
+            addLog(`Gửi lệnh BUZZER (${state}) → Mã hóa Hex: ${encryptedMsg}`);
         }
 
+        // Hẹn giờ
         function setTimerOn() {
             scheduledOnTime = document.getElementById("onTimeInput").value;
             document.getElementById("savedOnTime").innerText = scheduledOnTime || "Chưa đặt";
-            addLog(`Đã đặt lịch BẬT đèn lúc: ${scheduledOnTime || "Hủy"}`);
+            addLog(`⏰ Đã đặt lịch BẬT đèn lúc: ${scheduledOnTime || "Hủy"}`);
         }
 
         function setTimerOff() {
             scheduledOffTime = document.getElementById("offTimeInput").value;
             document.getElementById("savedOffTime").innerText = scheduledOffTime || "Chưa đặt";
-            addLog(`Đã đặt lịch TẮT đèn lúc: ${scheduledOffTime || "Hủy"}`);
+            addLog(`⏰ Đã đặt lịch TẮT đèn lúc: ${scheduledOffTime || "Hủy"}`);
         }
 
         // Kiểm tra thời gian thực từng giây để thực hiện hẹn giờ
@@ -441,6 +470,73 @@
                 }
             }
         }, 1000);
+
+        // ==========================================
+        // SCRIPT LOGIC XỬ LÝ CHATBOT AI
+        // ==========================================
+        function toggleChat() {
+            const chatBox = document.getElementById('chat-box');
+            if (chatBox.classList.contains('hidden')) {
+                chatBox.classList.remove('hidden');
+                chatBox.classList.add('flex');
+            } else {
+                chatBox.classList.remove('flex');
+                chatBox.classList.add('hidden');
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        async function sendMessage() {
+            const inputField = document.getElementById('chat-input');
+            const message = inputField.value.trim();
+            if (!message) return;
+
+            const chatMessages = document.getElementById('chat-messages');
+
+            // 1. Hiển thị tin nhắn người dùng
+            chatMessages.innerHTML += `
+                <div class="flex justify-end">
+                    <div class="bg-indigo-600 text-white p-2.5 rounded-2xl rounded-tr-none max-w-[85%] leading-relaxed">
+                        ${message}
+                    </div>
+                </div>`;
+            
+            inputField.value = '';
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            // 2. Gửi dữ liệu tới Flask API Backend (/api/chat)
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message })
+                });
+                const data = await response.json();
+
+                // 3. Hiển thị phản hồi từ AI Chatbot
+                chatMessages.innerHTML += `
+                    <div class="flex justify-start">
+                        <div class="bg-slate-700/80 border border-slate-600/50 text-slate-100 p-2.5 rounded-2xl rounded-tl-none max-w-[85%] leading-relaxed whitespace-pre-line">
+                            ${data.reply}
+                        </div>
+                    </div>`;
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            } catch (error) {
+                console.error('Lỗi kết nối Server:', error);
+                chatMessages.innerHTML += `
+                    <div class="flex justify-start">
+                        <div class="bg-rose-500/10 border border-rose-500/30 text-rose-300 p-2.5 rounded-2xl rounded-tl-none max-w-[85%]">
+                            ⚠️ Không thể kết nối tới Server AI Backend.
+                        </div>
+                    </div>`;
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+        }
     </script>
 </body>
 </html>
