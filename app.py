@@ -68,6 +68,7 @@ def home():
 # ==========================================
 @app.route('/api/chat', methods=['POST'])
 def chat_ai():
+    print("--- ĐÃ GỌI API CHAT ---")
     data = request.json
     user_message = data.get('message', '').lower().strip()
     
