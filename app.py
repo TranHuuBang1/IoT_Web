@@ -2,6 +2,8 @@ import os
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 import paho.mqtt.client as mqtt
+import ssl
+import time
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
@@ -17,6 +19,13 @@ MQTT_USER = "esp32"
 MQTT_PASSWORD = "tranhuubang"
 
 AES_KEY = b"1234567890123456"
+
+# Biến lưu trữ giá trị cảm biến mới nhất trên Server
+latest_sensor_data = {
+    "temperature": "--",
+    "humidity": "--",
+    "light": "--"
+}
 
 # ==========================================
 # HÀM MÃ HÓA & GIẢI MÃ AES-128
@@ -42,19 +51,75 @@ def encrypt_aes(plain_text):
     return encrypted_bytes.hex().upper()
 
 # ==========================================
-# HÀM GỬI LỆNH MQTT AN TOÀN TRÊN RENDER
+# KẾT NỐI MQTT NỀN ĐỂ LẮNG NGHE DỮ LIỆU CẢM BIẾN
+# ==========================================
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        print("Backend Flask đã kết nối MQTT thành công để nghe cảm biến!")
+        client.subscribe("tro/room1/temperature")
+        client.subscribe("tro/room1/humidity")
+        client.subscribe("tro/room1/light")
+    else:
+        print(f"Kết nối MQTT thất bại, mã lỗi: {rc}")
+
+def on_message(client, userdata, msg):
+    global latest_sensor_data
+    try:
+        payload_decrypted = decrypt_aes(msg.payload.decode('utf-8'))
+        if msg.topic == "tro/room1/temperature":
+            latest_sensor_data["temperature"] = payload_decrypted
+        elif msg.topic == "tro/room1/humidity":
+            latest_sensor_data["humidity"] = payload_decrypted
+        elif msg.topic == "tro/room1/light":
+            latest_sensor_data["light"] = payload_decrypted
+    except Exception as e:
+        print(f"Lỗi giải mã tin nhắn cảm biến: {e}")
+
+# Khởi chạy background MQTT client cho Flask
+background_client = mqtt.Client(client_id=f"flask_background_{os.getpid()}")
+background_client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
+background_client.tls_set(cert_reqs=ssl.CERT_NONE)
+background_client.tls_insecure_set(True)
+background_client.on_connect = on_connect
+background_client.on_message = on_message
+
+try:
+    background_client.connect(MQTT_SERVER, MQTT_PORT, 60)
+    background_client.loop_start()
+except Exception as e:
+    print(f"Không thể khởi động background MQTT client: {e}")
+
+# ==========================================
+# HÀM GỬI LỆNH MQTT AN TOÀN
 # ==========================================
 def send_mqtt_command(topic, message):
+    client = None
     try:
-        client = mqtt.Client()
+        client_id = f"flask_cmd_{os.getpid()}_{int(time.time())}"
+        client = mqtt.Client(client_id=client_id)
         client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
-        client.tls_set()
+        client.tls_set(cert_reqs=ssl.CERT_NONE)
+        client.tls_insecure_set(True)
+        
         client.connect(MQTT_SERVER, MQTT_PORT, 60)
+        client.loop_start()
+        
         encrypted_cmd = encrypt_aes(message)
-        client.publish(topic, encrypted_cmd)
+        result = client.publish(topic, encrypted_cmd)
+        result.wait_for_publish(timeout=3)
+        
+        time.sleep(0.5)
+        client.loop_stop()
         client.disconnect()
+        print(f"Đã gửi lệnh MQTT tới {topic}: {message}")
     except Exception as e:
         print(f"Lỗi gửi MQTT: {e}")
+        if client:
+            try:
+                client.loop_stop()
+                client.disconnect()
+            except:
+                pass
 
 # ==========================================
 # ROUTE WEB DASHBOARD
@@ -64,7 +129,7 @@ def home():
     return render_template("index.html")
 
 # ==========================================
-# API AI CHATBOT (LẤY DỮ LIỆU TRỰC TIẾP TỪ MQTT)
+# API AI CHATBOT
 # ==========================================
 @app.route('/api/chat', methods=['POST'])
 def chat_ai():
@@ -74,22 +139,11 @@ def chat_ai():
     
     response_text = "Xin lỗi, tôi chưa hiểu ý bạn. Bạn có thể hỏi thời tiết/nhiệt độ hoặc ra lệnh bật/tắt đèn nhé."
     
-    # 1. Hỏi về thời tiết / nhiệt độ / độ ẩm -> Đọc trực tiếp từ HiveMQ Cloud khi người dùng hỏi
+    # 1. Hỏi về thời tiết / nhiệt độ / độ ẩm -> Lấy trực tiếp từ biến lưu trữ ngầm
     if any(kw in user_message for kw in ["thời tiết", "nhiệt độ", "độ ẩm", "phòng trọ", "bao nhiêu độ", "thế nào", "ra sao"]):
-        temp, hum, light = "--", "--", "--"
-        try:
-            # Kết nối nhanh tới MQTT Broker để lấy giá trị mới nhất
-            import paho.mqtt.subscribe as subscribe
-            # Đọc nhanh các topic cảm biến từ Broker
-            msg_temp = subscribe.simple("tro/room1/temperature", hostname=MQTT_SERVER, port=MQTT_PORT, auth={'username':MQTT_USER, 'password':MQTT_PASSWORD}, tls={'ca_certs':None}, timeout=2)
-            msg_hum = subscribe.simple("tro/room1/humidity", hostname=MQTT_SERVER, port=MQTT_PORT, auth={'username':MQTT_USER, 'password':MQTT_PASSWORD}, tls={'ca_certs':None}, timeout=2)
-            msg_light = subscribe.simple("tro/room1/light", hostname=MQTT_SERVER, port=MQTT_PORT, auth={'username':MQTT_USER, 'password':MQTT_PASSWORD}, tls={'ca_certs':None}, timeout=2)
-            
-            temp = decrypt_aes(msg_temp.payload.decode('utf-8'))
-            hum = decrypt_aes(msg_hum.payload.decode('utf-8'))
-            light = decrypt_aes(msg_light.payload.decode('utf-8'))
-        except Exception as e:
-            print(f"Lỗi đọc MQTT: {e}")
+        temp = latest_sensor_data["temperature"]
+        hum = latest_sensor_data["humidity"]
+        light = latest_sensor_data["light"]
 
         analysis = ""
         try:
