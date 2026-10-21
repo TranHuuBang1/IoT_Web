@@ -20,8 +20,8 @@ MQTT_PASSWORD = "tranhuubang"
 
 AES_KEY = b"1234567890123456"
 
-# Biến lưu trữ giá trị cảm biến mới nhất trên Server
-latest_sensor_data = {
+# Biến bộ nhớ tạm lưu dữ liệu cảm biến mới nhất
+sensor_data = {
     "temperature": "--",
     "humidity": "--",
     "light": "--"
@@ -51,46 +51,48 @@ def encrypt_aes(plain_text):
     return encrypted_bytes.hex().upper()
 
 # ==========================================
-# KẾT NỐI MQTT NỀN ĐỂ LẮNG NGHE DỮ LIỆU CẢM BIẾN
+# MQTT BACKGROUND CLIENT CHO RENDER (ĐỌC NGẦM DỮ LIỆU)
 # ==========================================
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print("Backend Flask đã kết nối MQTT thành công để nghe cảm biến!")
+        print("-> MQTT Background đã kết nối thành công với HiveMQ!")
         client.subscribe("tro/room1/temperature")
         client.subscribe("tro/room1/humidity")
         client.subscribe("tro/room1/light")
     else:
-        print(f"Kết nối MQTT thất bại, mã lỗi: {rc}")
+        print(f"-> MQTT Kết nối thất bại, mã lỗi: {rc}")
 
 def on_message(client, userdata, msg):
-    global latest_sensor_data
+    global sensor_data
     try:
         payload_decrypted = decrypt_aes(msg.payload.decode('utf-8'))
-        if msg.topic == "tro/room1/temperature":
-            latest_sensor_data["temperature"] = payload_decrypted
-        elif msg.topic == "tro/room1/humidity":
-            latest_sensor_data["humidity"] = payload_decrypted
-        elif msg.topic == "tro/room1/light":
-            latest_sensor_data["light"] = payload_decrypted
+        topic = msg.topic
+        if "temperature" in topic:
+            sensor_data["temperature"] = payload_decrypted
+        elif "humidity" in topic:
+            sensor_data["humidity"] = payload_decrypted
+        elif "light" in topic:
+            sensor_data["light"] = payload_decrypted
+        print(f"Cập nhật cảm biến từ Broker: {sensor_data}")
     except Exception as e:
-        print(f"Lỗi giải mã tin nhắn cảm biến: {e}")
+        print(f"Lỗi giải mã: {e}")
 
-# Khởi chạy background MQTT client cho Flask
-background_client = mqtt.Client(client_id=f"flask_background_{os.getpid()}")
-background_client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
-background_client.tls_set(cert_reqs=ssl.CERT_NONE)
-background_client.tls_insecure_set(True)
-background_client.on_connect = on_connect
-background_client.on_message = on_message
+# Khởi tạo client chạy ngầm trong Flask
+mqtt_bg = mqtt.Client(client_id=f"render_bg_listener_{os.getpid()}")
+mqtt_bg.username_pw_set(MQTT_USER, MQTT_PASSWORD)
+mqtt_bg.tls_set(cert_reqs=ssl.CERT_NONE)
+mqtt_bg.tls_insecure_set(True)
+mqtt_bg.on_connect = on_connect
+mqtt_bg.on_message = on_message
 
 try:
-    background_client.connect(MQTT_SERVER, MQTT_PORT, 60)
-    background_client.loop_start()
+    mqtt_bg.connect(MQTT_SERVER, MQTT_PORT, 60)
+    mqtt_bg.loop_start()
 except Exception as e:
-    print(f"Không thể khởi động background MQTT client: {e}")
+    print(f"Lỗi khởi chạy MQTT Background: {e}")
 
 # ==========================================
-# HÀM GỬI LỆNH MQTT AN TOÀN
+# HÀM GỬI LỆNH MQTT (ĐIỀU KHIỂN BẬT/TẮT)
 # ==========================================
 def send_mqtt_command(topic, message):
     client = None
@@ -108,10 +110,9 @@ def send_mqtt_command(topic, message):
         result = client.publish(topic, encrypted_cmd)
         result.wait_for_publish(timeout=3)
         
-        time.sleep(0.5)
+        time.sleep(0.3)
         client.loop_stop()
         client.disconnect()
-        print(f"Đã gửi lệnh MQTT tới {topic}: {message}")
     except Exception as e:
         print(f"Lỗi gửi MQTT: {e}")
         if client:
@@ -133,17 +134,16 @@ def home():
 # ==========================================
 @app.route('/api/chat', methods=['POST'])
 def chat_ai():
-    print("--- ĐÃ GỌI API CHAT ---")
     data = request.json
     user_message = data.get('message', '').lower().strip()
     
     response_text = "Xin lỗi, tôi chưa hiểu ý bạn. Bạn có thể hỏi thời tiết/nhiệt độ hoặc ra lệnh bật/tắt đèn nhé."
     
-    # 1. Hỏi về thời tiết / nhiệt độ / độ ẩm -> Lấy trực tiếp từ biến lưu trữ ngầm
+    # 1. Hỏi thời tiết / nhiệt độ / độ ẩm -> Đọc trực tiếp từ bộ nhớ tạm
     if any(kw in user_message for kw in ["thời tiết", "nhiệt độ", "độ ẩm", "phòng trọ", "bao nhiêu độ", "thế nào", "ra sao"]):
-        temp = latest_sensor_data["temperature"]
-        hum = latest_sensor_data["humidity"]
-        light = latest_sensor_data["light"]
+        temp = sensor_data["temperature"]
+        hum = sensor_data["humidity"]
+        light = sensor_data["light"]
 
         analysis = ""
         try:
